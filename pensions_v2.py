@@ -242,9 +242,28 @@ def calculate_nhs_pension(
     projected_salary = current_salary * ((1 + salary_growth_rate) ** years_to_retirement)
     
     if scheme in ["1995 Section (final salary)", "2008 Section (final salary)"]:
-        pensionable_pay = projected_salary  # Use projected salary for final salary schemes
+        # Final salary schemes use projected salary at retirement
+        pensionable_pay = projected_salary
     else:
-        pensionable_pay = current_salary * (care_salary_pct / 100.0)  # CARE uses average
+        # CARE scheme: estimate career average with salary growth
+        # Average salary over career considering growth
+        if salary_growth_rate > 0 and years_of_service > 0:
+            # Calculate average salary over the service period with growth
+            # This approximates the career average by taking the midpoint salary
+            years_already_worked = years_of_service - years_to_retirement
+            if years_already_worked < 0:
+                years_already_worked = 0
+            
+            # Estimate average: use geometric mean approximation
+            start_salary = current_salary / ((1 + salary_growth_rate) ** years_already_worked) if years_already_worked > 0 else current_salary
+            end_salary = projected_salary
+            
+            # Career average is roughly the salary at the midpoint of service
+            mid_years = years_of_service / 2
+            avg_salary = current_salary * ((1 + salary_growth_rate) ** (years_to_retirement - (years_of_service - mid_years)))
+            pensionable_pay = avg_salary * (care_salary_pct / 100.0)
+        else:
+            pensionable_pay = current_salary * (care_salary_pct / 100.0)
 
     base_annual_pension = pensionable_pay * accrual_rate * years_of_service
 
@@ -264,6 +283,7 @@ def calculate_nhs_pension(
     total_lump_sum = automatic_lump_sum + extra_commutation_lump_sum
     
     # Calculate real-terms values (adjusted for inflation)
+    # This shows what the pension is worth in today's money
     inflation_factor = (1 + inflation_rate) ** years_to_retirement
     real_annual_pension = annual_pension_after_commutation / inflation_factor if inflation_factor > 0 else annual_pension_after_commutation
     real_lump_sum = total_lump_sum / inflation_factor if inflation_factor > 0 else total_lump_sum
@@ -623,42 +643,9 @@ with calc_col:
     
     st.caption(f"Scheme: **{scheme_desc}**")
     
-    # Growth & Inflation Rates
-    with st.expander("📈 Growth & Inflation Rates"):
-        rate_col1, rate_col2, rate_col3 = st.columns(3)
-        
-        with rate_col1:
-            st.slider(
-                "Salary growth (%/year)",
-                min_value=0.0,
-                max_value=10.0,
-                step=0.5,
-                key="salary_growth_rate",
-                help="Expected annual salary increase"
-            )
-        
-        with rate_col2:
-            st.slider(
-                "Investment growth (%/year)",
-                min_value=0.0,
-                max_value=10.0,
-                step=0.5,
-                key="investment_growth_rate",
-                help="Expected growth on any additional savings"
-            )
-        
-        with rate_col3:
-            st.slider(
-                "Inflation rate (%/year)",
-                min_value=0.0,
-                max_value=10.0,
-                step=0.5,
-                key="inflation_rate",
-                help="Assumed inflation for real-terms calculations"
-            )
-    
     # Assumptions
     with st.expander("⚙️ Advanced Options"):
+        st.markdown("##### Retirement Adjustments")
         adv_col1, adv_col2 = st.columns(2)
         
         with adv_col1:
@@ -703,6 +690,39 @@ with calc_col:
                 step=5,
                 key="care_salary_pct"
             )
+        
+        st.markdown("##### Growth & Inflation Assumptions")
+        rate_col1, rate_col2, rate_col3 = st.columns(3)
+        
+        with rate_col1:
+            st.slider(
+                "Salary growth (%/year)",
+                min_value=0.0,
+                max_value=10.0,
+                step=0.5,
+                key="salary_growth_rate",
+                help="Expected annual salary increase"
+            )
+        
+        with rate_col2:
+            st.slider(
+                "Investment growth (%/year)",
+                min_value=0.0,
+                max_value=10.0,
+                step=0.5,
+                key="investment_growth_rate",
+                help="Expected growth on any additional savings"
+            )
+        
+        with rate_col3:
+            st.slider(
+                "Inflation rate (%/year)",
+                min_value=0.0,
+                max_value=10.0,
+                step=0.5,
+                key="inflation_rate",
+                help="Assumed inflation for real-terms calculations"
+            )
     
     # Calculate results
     results = calculate_nhs_pension(
@@ -724,10 +744,11 @@ with calc_col:
     # Results display
     st.markdown("#### 2. Your Estimated Pension")
     
+    # Main results - nominal values at retirement
     kpi1, kpi2 = st.columns(2)
     with kpi1:
         st.metric(
-            "Annual Pension",
+            "Annual Pension (at retirement)",
             f"£{results['annual_pension_after_commutation']:,.0f}",
         )
     with kpi2:
@@ -740,22 +761,28 @@ with calc_col:
     monthly = results['annual_pension_after_commutation'] / 12
     st.caption(f"That's approximately **£{monthly:,.0f} per month** before tax.")
     
-    # Show projected salary and real-terms if relevant
+    # Show real-terms values prominently if there's time until retirement
     if results['years_to_retirement'] > 0:
-        with st.expander("📊 Projections & Real-Terms Values"):
-            proj_col1, proj_col2 = st.columns(2)
-            with proj_col1:
-                if st.session_state.scheme in ["1995 Section (final salary)", "2008 Section (final salary)"]:
-                    st.metric(
-                        f"Projected Salary at Retirement ({results['years_to_retirement']} yrs)",
-                        f"£{results['projected_salary']:,.0f}"
-                    )
-            with proj_col2:
-                st.metric(
-                    "Real-Terms Annual Pension (today's money)",
-                    f"£{results['real_annual_pension']:,.0f}"
-                )
-            st.caption(f"Real-terms values discount for {st.session_state.inflation_rate}% annual inflation over {results['years_to_retirement']} years.")
+        st.markdown("##### 📊 In Today's Money")
+        real_col1, real_col2 = st.columns(2)
+        with real_col1:
+            real_monthly = results['real_annual_pension'] / 12
+            st.metric(
+                f"Real-Terms Annual Pension",
+                f"£{results['real_annual_pension']:,.0f}",
+                delta=f"£{real_monthly:,.0f}/month",
+                delta_color="off"
+            )
+        with real_col2:
+            st.metric(
+                "Real-Terms Lump Sum",
+                f"£{results['real_lump_sum']:,.0f}"
+            )
+        st.caption(f"Adjusted for {st.session_state.inflation_rate}% inflation over {results['years_to_retirement']} years to retirement.")
+        
+        # Show projected salary for final salary schemes
+        if st.session_state.scheme in ["1995 Section (final salary)", "2008 Section (final salary)"]:
+            st.info(f"📈 With {st.session_state.salary_growth_rate}% salary growth, your projected final salary: **£{results['projected_salary']:,.0f}**")
     
     # Quick chart
     chart_data = pd.DataFrame({
