@@ -589,25 +589,31 @@ st.markdown("""
 # ---------- PRIMARY: Chat Interface ----------
 st.subheader("💬 NHS Pension Assistant")
 
-# Intro text and chat input at top
+# Intro text
 st.markdown("""
 Tell me about yourself to get a personalised pension estimate, or ask any questions about NHS pensions.
 """)
 
-# Chat input at the top - prominent position
-prompt = st.chat_input("Example: I'm 35, earn £45,000, and have worked 10 years in the NHS...")
+# Chat input at the top using a form (gives us control over placement)
+with st.form(key="chat_form", clear_on_submit=True):
+    user_input = st.text_input(
+        "Your message",
+        placeholder="Example: I'm 35, earn £45,000, and have worked 10 years in the NHS...",
+        label_visibility="collapsed"
+    )
+    submit_button = st.form_submit_button("Send 💬", use_container_width=True)
 
-if prompt:
+if submit_button and user_input:
     if not st.session_state.api_key:
         st.error("Please enter your OpenAI API key in the sidebar to use the chat.")
     else:
         # Add user message
-        st.session_state.messages.append({"role": "user", "content": prompt})
+        st.session_state.messages.append({"role": "user", "content": user_input})
         
         # Get AI response
         try:
             with st.spinner("Thinking..."):
-                response = chat_with_openai(prompt, st.session_state.api_key)
+                response = chat_with_openai(user_input, st.session_state.api_key)
             
             st.session_state.messages.append({"role": "assistant", "content": response})
             st.rerun()
