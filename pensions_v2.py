@@ -450,7 +450,21 @@ def get_system_prompt() -> str:
         inflation_rate=st.session_state.inflation_rate / 100,
     )
     
-    return f"""You are an expert NHS pension advisor assistant integrated with an interactive pension calculator.
+    return f"""You are a friendly NHS pension advisor assistant. Your role is to help users understand their NHS pension through natural conversation.
+
+CONVERSATION APPROACH:
+When a user starts a new conversation or hasn't provided their details yet, warmly gather the key information needed:
+1. Current annual salary
+2. Current age
+3. Years of NHS service (or expected years at retirement)
+4. Which pension scheme they're in (1995, 2008, or 2015)
+5. When they plan to retire
+
+Ask these naturally in conversation, not as a rigid form. For example:
+- "Hi! I'd be happy to help you understand your NHS pension. To give you an estimate, could you tell me your current salary and age?"
+- "Great! And how long have you worked (or expect to work) in the NHS?"
+
+Once you have the basics, use the update_calculator function to set the values and provide an estimate.
 
 CURRENT CALCULATOR STATE:
 - Current salary: £{st.session_state.current_salary:,.0f}
@@ -471,40 +485,43 @@ CURRENT CALCULATOR STATE:
 CURRENT CALCULATION RESULTS:
 - Annual pension (after commutation): £{results['annual_pension_after_commutation']:,.2f}
 - Total lump sum: £{results['total_lump_sum']:,.2f}
+- Real-terms annual pension: £{results['real_annual_pension']:,.2f}
+- Monthly pension: £{results['annual_pension_after_commutation']/12:,.2f}
 - Base annual pension: £{results['base_annual_pension']:,.2f}
 - Early/late adjustment factor: {results['early_late_adjustment_factor']:.4f}
 
 NHS PENSION SCHEME INFORMATION:
 - 1995 Section: Final salary scheme, 1/80th accrual rate, automatic 3x lump sum, Normal Pension Age 60
 - 2008 Section: Final salary scheme, 1/60th accrual rate, no automatic lump sum, Normal Pension Age 65  
-- 2015 Scheme: Career Average (CARE), 1/54th accrual rate, no automatic lump sum, Normal Pension Age ~67
+- 2015 Scheme: Career Average (CARE), 1/54th accrual rate, no automatic lump sum, Normal Pension Age ~67 (most common for current staff)
 
 KEY FORMULAS:
 - Base Annual Pension = Pensionable Pay × Accrual Rate × Years of Service
-- Early Retirement: Pension reduced by X% for each year before Normal Pension Age
-- Late Retirement: Pension increased by X% for each year after Normal Pension Age
+- Early Retirement: Pension reduced by ~4-5% for each year before Normal Pension Age
+- Late Retirement: Pension increased by ~3% for each year after Normal Pension Age
 - Commutation: Trade pension income for lump sum (factor × annual pension given up)
 
 YOUR CAPABILITIES:
-1. Answer questions about NHS pensions and the calculations
-2. Explain how different factors affect the pension
-3. Use the update_calculator function to modify values when the user wants to:
-   - Change their personal details (salary, age, years of service)
-   - Explore different scenarios (what if I retire at 60?)
-   - Switch between pension schemes
-   - Adjust commutation options
-   - See the impact of different assumptions
+1. Gather user information conversationally to calculate their pension
+2. Answer questions about NHS pensions and explain the calculations
+3. Use the update_calculator function to set or modify values
+4. Explore "what if" scenarios (different retirement ages, salary changes, etc.)
+5. Explain how different factors affect the pension
 
-CRITICAL: When using update_calculator, ONLY include the specific fields the user asked to change.
-- If user says "change salary to £50,000" - only include current_salary in the function call
-- If user says "what if I retire at 60" - only include retirement_age in the function call
-- DO NOT include fields that weren't mentioned by the user
-- DO NOT reset or modify other values when making a specific change
+CRITICAL RULES FOR update_calculator:
+- ONLY include the specific fields the user mentioned
+- If user says "I earn £50,000" - only set current_salary
+- If user says "I'm 45 and plan to retire at 60" - only set current_age and retirement_age
+- DO NOT include fields that weren't mentioned
+- When user provides multiple values at once, include all of them in ONE function call
 
-When users ask "what if" questions or want to explore scenarios, USE the update_calculator function to make changes.
-Always explain the impact of changes and offer to explore further scenarios.
+After updating the calculator, always summarise the pension estimate clearly:
+- Annual pension amount
+- Monthly amount
+- Lump sum if applicable
+- Offer to explore different scenarios
 
-Be helpful, accurate, and proactive in suggesting relevant calculations."""
+Be warm, helpful, and proactive in explaining options."""
 
 
 def chat_with_openai(user_message: str, api_key: str) -> str:
@@ -569,68 +586,152 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ---------- Main Two-Column Layout ----------
-calc_col, chat_col = st.columns([1, 1], gap="large")
+# ---------- PRIMARY: Chat Interface ----------
+st.subheader("💬 NHS Pension Assistant")
 
-# ---------- LEFT COLUMN: Calculator ----------
-with calc_col:
-    st.subheader("📊 Pension Calculator")
+# API Key in sidebar
+with st.sidebar:
+    st.markdown("### ⚙️ Settings")
+    api_key = st.text_input(
+        "OpenAI API Key", 
+        type="password", 
+        value=st.session_state.api_key,
+        help="Required for chat functionality"
+    )
+    st.session_state.api_key = api_key
     
-    # Show update notification if calculator was updated by AI
-    if st.session_state.calculator_updated:
-        st.markdown(f"""
-        <div class="update-notification">
-            <strong>🤖 Calculator Updated by AI:</strong><br>
-            {st.session_state.update_message.replace(chr(10), '<br>')}
-        </div>
-        """, unsafe_allow_html=True)
-        st.session_state.calculator_updated = False
+    if st.session_state.messages:
+        if st.button("🗑️ Clear Chat", use_container_width=True):
+            st.session_state.messages = []
+            st.rerun()
     
-    # Personal Details
-    st.markdown("#### 1. Personal & Scheme Details")
+    st.markdown("---")
+    st.markdown("### 📚 Quick Links")
+    st.link_button("NHS Pensions Portal", "https://www.nhsbsa.nhs.uk/nhs-pensions", use_container_width=True)
+    st.link_button("Total Reward Statements", "https://www.nhsbsa.nhs.uk/total-reward-statements", use_container_width=True)
+    st.link_button("McCloud Remedy", "https://www.nhsbsa.nhs.uk/mccloud-remedy", use_container_width=True)
+    st.link_button("Money Helper", "https://www.moneyhelper.org.uk/en/pensions-and-retirement", use_container_width=True)
+
+# Welcome message if no conversation yet
+if not st.session_state.messages:
+    st.markdown("""
+    👋 **Welcome!** I'm here to help you understand your NHS pension.
     
-    col1, col2 = st.columns(2)
+    Just tell me a bit about yourself and I'll calculate your estimated pension. For example:
+    - *"I earn £45,000 and I'm 35 years old"*
+    - *"I've worked 15 years in the NHS and want to retire at 60"*
+    - *"What pension would I get if I stay until 67?"*
+    
+    Or ask me anything about NHS pensions - I'm happy to explain how it all works!
+    """)
+
+# Show update notification if calculator was updated by AI
+if st.session_state.calculator_updated:
+    st.success(f"🤖 **Calculator Updated:**\n{st.session_state.update_message}")
+    st.session_state.calculator_updated = False
+
+# Chat messages container
+chat_container = st.container(height=450)
+
+with chat_container:
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+# Chat input
+if prompt := st.chat_input("Tell me about your situation or ask a question..."):
+    if not api_key:
+        st.error("Please enter your OpenAI API key in the sidebar to use the chat.")
+    else:
+        # Add user message
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        
+        # Get AI response
+        try:
+            with st.spinner("Thinking..."):
+                response = chat_with_openai(prompt, api_key)
+            
+            st.session_state.messages.append({"role": "assistant", "content": response})
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
+
+# ---------- COLLAPSIBLE: Calculator Details ----------
+st.markdown("---")
+
+# Calculate results for display
+results = calculate_nhs_pension(
+    scheme=st.session_state.scheme,
+    current_salary=st.session_state.current_salary,
+    years_of_service=st.session_state.years_of_service,
+    retirement_age=st.session_state.retirement_age,
+    normal_pension_age=st.session_state.normal_pension_age,
+    early_reduction_per_year=st.session_state.early_reduction_per_year / 100,
+    late_increase_per_year=st.session_state.late_increase_per_year / 100,
+    commutation_proportion=st.session_state.commutation_proportion / 100,
+    commutation_factor=st.session_state.commutation_factor,
+    care_salary_pct=st.session_state.care_salary_pct,
+    current_age=st.session_state.current_age,
+    salary_growth_rate=st.session_state.salary_growth_rate / 100,
+    inflation_rate=st.session_state.inflation_rate / 100,
+)
+
+# Quick summary always visible
+summary_col1, summary_col2, summary_col3 = st.columns(3)
+with summary_col1:
+    st.metric("💰 Annual Pension", f"£{results['annual_pension_after_commutation']:,.0f}")
+with summary_col2:
+    st.metric("📅 Monthly", f"£{results['annual_pension_after_commutation']/12:,.0f}")
+with summary_col3:
+    st.metric("🎁 Lump Sum", f"£{results['total_lump_sum']:,.0f}")
+
+with st.expander("📊 View Full Calculator & Adjust Settings"):
+    st.markdown("#### Your Details")
+    
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         st.number_input(
-            "Current annual pensionable pay (£)",
+            "Current annual salary (£)",
             min_value=0.0,
             step=1000.0,
             key="current_salary"
         )
         
         st.number_input(
-            "Years of service at retirement",
+            "Current age",
+            min_value=18,
+            max_value=75,
+            key="current_age"
+        )
+    
+    with col2:
+        st.number_input(
+            "Years of service",
             min_value=0.0,
             max_value=50.0,
             step=1.0,
             key="years_of_service"
         )
         
+        st.slider(
+            "Retirement age",
+            min_value=55,
+            max_value=75,
+            key="retirement_age"
+        )
+    
+    with col3:
         scheme_options = [
             "1995 Section (final salary)",
             "2008 Section (final salary)",
             "2015 Scheme (career average)",
         ]
         st.radio(
-            "NHS pension section",
+            "Pension scheme",
             scheme_options,
             key="scheme"
-        )
-    
-    with col2:
-        st.number_input(
-            "Current age",
-            min_value=18,
-            max_value=75,
-            key="current_age"
-        )
-        
-        st.slider(
-            "Planned retirement age",
-            min_value=55,
-            max_value=75,
-            key="retirement_age"
         )
         
         _, _, suggested_npa, scheme_desc = nhs_scheme_parameters(st.session_state.scheme)
@@ -641,9 +742,9 @@ with calc_col:
             key="normal_pension_age"
         )
     
-    st.caption(f"Scheme: **{scheme_desc}**")
+    st.caption(f"**Scheme info:** {scheme_desc}")
     
-    # Assumptions
+    # Advanced Options nested inside
     with st.expander("⚙️ Advanced Options"):
         st.markdown("##### Retirement Adjustments")
         adv_col1, adv_col2 = st.columns(2)
@@ -724,27 +825,9 @@ with calc_col:
                 help="Assumed inflation for real-terms calculations"
             )
     
-    # Calculate results
-    results = calculate_nhs_pension(
-        scheme=st.session_state.scheme,
-        current_salary=st.session_state.current_salary,
-        years_of_service=st.session_state.years_of_service,
-        retirement_age=st.session_state.retirement_age,
-        normal_pension_age=st.session_state.normal_pension_age,
-        early_reduction_per_year=st.session_state.early_reduction_per_year / 100,
-        late_increase_per_year=st.session_state.late_increase_per_year / 100,
-        commutation_proportion=st.session_state.commutation_proportion / 100,
-        commutation_factor=st.session_state.commutation_factor,
-        care_salary_pct=st.session_state.care_salary_pct,
-        current_age=st.session_state.current_age,
-        salary_growth_rate=st.session_state.salary_growth_rate / 100,
-        inflation_rate=st.session_state.inflation_rate / 100,
-    )
+    # Detailed Results
+    st.markdown("#### Detailed Results")
     
-    # Results display
-    st.markdown("#### 2. Your Estimated Pension")
-    
-    # Main results - nominal values at retirement
     kpi1, kpi2 = st.columns(2)
     with kpi1:
         st.metric(
@@ -757,11 +840,9 @@ with calc_col:
             f"£{results['total_lump_sum']:,.0f}",
         )
     
-    # Monthly breakdown
     monthly = results['annual_pension_after_commutation'] / 12
     st.caption(f"That's approximately **£{monthly:,.0f} per month** before tax.")
     
-    # Show real-terms values prominently if there's time until retirement
     if results['years_to_retirement'] > 0:
         st.markdown("##### 📊 In Today's Money")
         real_col1, real_col2 = st.columns(2)
@@ -780,118 +861,16 @@ with calc_col:
             )
         st.caption(f"Adjusted for {st.session_state.inflation_rate}% inflation over {results['years_to_retirement']} years to retirement.")
         
-        # Show projected salary for final salary schemes
         if st.session_state.scheme in ["1995 Section (final salary)", "2008 Section (final salary)"]:
             st.info(f"📈 With {st.session_state.salary_growth_rate}% salary growth, your projected final salary: **£{results['projected_salary']:,.0f}**")
     
-    # Quick chart
+    # Chart
     chart_data = pd.DataFrame({
         "Type": ["Annual Pension", "Lump Sum"],
         "Amount": [results['annual_pension_after_commutation'], results['total_lump_sum']]
     }).set_index("Type")
     st.bar_chart(chart_data)
 
-
-# ---------- RIGHT COLUMN: Chat Interface ----------
-with chat_col:
-    st.subheader("💬 AI Assistant")
-    
-    st.markdown("""
-    Ask questions or tell me to update the calculator! Try:
-    - *"What if I retire at 60?"*
-    - *"Change my salary to £55,000"*
-    - *"How does the 1995 scheme compare?"*
-    - *"What happens if I work 5 more years?"*
-    """)
-    
-    # API Key input
-    api_key = st.text_input(
-        "OpenAI API Key", 
-        type="password", 
-        value=st.session_state.api_key,
-        help="Required for chat functionality",
-        key="api_key_input"
-    )
-    st.session_state.api_key = api_key
-    
-    # Chat messages container
-    chat_container = st.container(height=400)
-    
-    with chat_container:
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-    
-    # Chat input
-    if prompt := st.chat_input("Ask about your pension or request changes..."):
-        if not api_key:
-            st.error("Please enter your OpenAI API key to use the chat.")
-        else:
-            # Add user message
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            
-            # Get AI response
-            try:
-                with st.spinner("Thinking..."):
-                    response = chat_with_openai(prompt, api_key)
-                
-                st.session_state.messages.append({"role": "assistant", "content": response})
-                st.rerun()
-                
-            except Exception as e:
-                st.error(f"Error: {str(e)}")
-    
-    # Clear chat button
-    if st.session_state.messages:
-        if st.button("🗑️ Clear Chat", use_container_width=True):
-            st.session_state.messages = []
-            st.rerun()
-
-
-# ---------- Full Width: Resources Section ----------
-st.markdown("---")
-st.subheader("📚 Useful Resources & Links")
-
-st.markdown("Find more information about NHS pensions from these official sources:")
-
-# Resource cards in columns
-res_col1, res_col2, res_col3, res_col4 = st.columns(4)
-
-with res_col1:
-    st.markdown("""
-    <div class="nhs-link-card">
-        <h4>🏛️ NHS Pensions</h4>
-        <p>Official NHSBSA pension portal</p>
-    </div>
-    """, unsafe_allow_html=True)
-    st.link_button("Visit", "https://www.nhsbsa.nhs.uk/nhs-pensions", use_container_width=True)
-
-with res_col2:
-    st.markdown("""
-    <div class="nhs-link-card">
-        <h4>📊 Total Reward</h4>
-        <p>Your personalised statements</p>
-    </div>
-    """, unsafe_allow_html=True)
-    st.link_button("View", "https://www.nhsbsa.nhs.uk/total-reward-statements", use_container_width=True)
-
-with res_col3:
-    st.markdown("""
-    <div class="nhs-link-card">
-        <h4>🔄 McCloud Remedy</h4>
-        <p>Remedy information</p>
-    </div>
-    """, unsafe_allow_html=True)
-    st.link_button("Learn", "https://www.nhsbsa.nhs.uk/mccloud-remedy", use_container_width=True)
-
-with res_col4:
-    st.markdown("""
-    <div class="nhs-link-card">
-        <h4>💰 Money Helper</h4>
-        <p>Free pension guidance</p>
-    </div>
-    """, unsafe_allow_html=True)
-    st.link_button("Explore", "https://www.moneyhelper.org.uk/en/pensions-and-retirement", use_container_width=True)
 
 # Footer
 st.markdown("---")
