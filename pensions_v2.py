@@ -595,9 +595,6 @@ Tell me about yourself to get a personalised pension estimate, or ask any questi
 """)
 
 # Chat input at the top - prominent position
-if not st.session_state.api_key:
-    st.info("👈 Please enter your OpenAI API key in the sidebar to start chatting.")
-
 prompt = st.chat_input("Example: I'm 35, earn £45,000, and have worked 10 years in the NHS...")
 
 if prompt:
