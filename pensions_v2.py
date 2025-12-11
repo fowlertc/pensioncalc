@@ -589,6 +589,35 @@ st.markdown("""
 # ---------- PRIMARY: Chat Interface ----------
 st.subheader("💬 NHS Pension Assistant")
 
+# Intro text and chat input at top
+st.markdown("""
+Tell me about yourself to get a personalised pension estimate, or ask any questions about NHS pensions.
+""")
+
+# Chat input at the top - prominent position
+if not st.session_state.api_key:
+    st.info("👈 Please enter your OpenAI API key in the sidebar to start chatting.")
+
+prompt = st.chat_input("Example: I'm 35, earn £45,000, and have worked 10 years in the NHS...")
+
+if prompt:
+    if not st.session_state.api_key:
+        st.error("Please enter your OpenAI API key in the sidebar to use the chat.")
+    else:
+        # Add user message
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        
+        # Get AI response
+        try:
+            with st.spinner("Thinking..."):
+                response = chat_with_openai(prompt, st.session_state.api_key)
+            
+            st.session_state.messages.append({"role": "assistant", "content": response})
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
+
 # API Key in sidebar
 with st.sidebar:
     st.markdown("### ⚙️ Settings")
@@ -612,50 +641,38 @@ with st.sidebar:
     st.link_button("McCloud Remedy", "https://www.nhsbsa.nhs.uk/mccloud-remedy", use_container_width=True)
     st.link_button("Money Helper", "https://www.moneyhelper.org.uk/en/pensions-and-retirement", use_container_width=True)
 
-# Welcome message if no conversation yet
-if not st.session_state.messages:
-    st.markdown("""
-    👋 **Welcome!** I'm here to help you understand your NHS pension.
-    
-    Just tell me a bit about yourself and I'll calculate your estimated pension. For example:
-    - *"I earn £45,000 and I'm 35 years old"*
-    - *"I've worked 15 years in the NHS and want to retire at 60"*
-    - *"What pension would I get if I stay until 67?"*
-    
-    Or ask me anything about NHS pensions - I'm happy to explain how it all works!
-    """)
-
 # Show update notification if calculator was updated by AI
 if st.session_state.calculator_updated:
     st.success(f"🤖 **Calculator Updated:**\n{st.session_state.update_message}")
     st.session_state.calculator_updated = False
 
-# Chat messages container
-chat_container = st.container(height=450)
-
-with chat_container:
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-# Chat input
-if prompt := st.chat_input("Tell me about your situation or ask a question..."):
-    if not api_key:
-        st.error("Please enter your OpenAI API key in the sidebar to use the chat.")
-    else:
-        # Add user message
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        
-        # Get AI response
-        try:
-            with st.spinner("Thinking..."):
-                response = chat_with_openai(prompt, api_key)
-            
-            st.session_state.messages.append({"role": "assistant", "content": response})
-            st.rerun()
-            
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
+# Welcome message if no conversation yet
+if not st.session_state.messages:
+    st.markdown("""
+    ---
+    ### 💡 How to use this tool
+    
+    **Just chat naturally!** Tell me things like:
+    
+    | What you can say | What I'll do |
+    |------------------|--------------|
+    | *"I earn £45,000 and I'm 35"* | Calculate your estimated pension |
+    | *"I've worked 15 years in the NHS"* | Update the years of service |
+    | *"What if I retire at 60?"* | Show how early retirement affects your pension |
+    | *"How does the 1995 scheme work?"* | Explain the different NHS pension schemes |
+    | *"What's a good lump sum option?"* | Discuss commutation choices |
+    
+    **I'll ask follow-up questions** if I need more details to give you an accurate estimate.
+    """)
+else:
+    # Chat messages container - show conversation history
+    st.markdown("---")
+    chat_container = st.container(height=400)
+    
+    with chat_container:
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
 
 # ---------- COLLAPSIBLE: Calculator Details ----------
 st.markdown("---")
