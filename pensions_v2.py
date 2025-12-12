@@ -424,8 +424,21 @@ def process_calculator_update(function_args: dict) -> str:
         "inflation_rate": "Inflation rate %"
     }
     
+    # Type mappings for proper coercion
+    float_fields = {"current_salary", "years_of_service", "early_reduction_per_year", 
+                    "late_increase_per_year", "commutation_factor", "salary_growth_rate",
+                    "investment_growth_rate", "inflation_rate"}
+    int_fields = {"current_age", "retirement_age", "normal_pension_age", 
+                  "commutation_proportion", "care_salary_pct"}
+    
     for key, value in function_args.items():
         if key in field_labels and value is not None:
+            # Coerce to correct type
+            if key in float_fields:
+                value = float(value)
+            elif key in int_fields:
+                value = int(value)
+            
             old_value = st.session_state.get(key)
             
             # Only update if value is actually different
@@ -776,8 +789,8 @@ with st.expander("📊 View Full Calculator & Adjust Settings"):
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        # Handle None values by showing placeholder
-        salary_value = st.session_state.current_salary if st.session_state.current_salary is not None else 0.0
+        # Handle None values by showing placeholder - ensure float type
+        salary_value = float(st.session_state.current_salary) if st.session_state.current_salary is not None else 0.0
         new_salary = st.number_input(
             "Current annual salary (£)",
             min_value=0.0,
@@ -786,7 +799,7 @@ with st.expander("📊 View Full Calculator & Adjust Settings"):
             key="current_salary_input"
         )
         if new_salary != salary_value and new_salary > 0:
-            st.session_state.current_salary = new_salary
+            st.session_state.current_salary = float(new_salary)
             st.rerun()
         
         age_value = int(st.session_state.current_age) if st.session_state.current_age is not None else 30
@@ -803,7 +816,8 @@ with st.expander("📊 View Full Calculator & Adjust Settings"):
             st.rerun()
     
     with col2:
-        years_value = st.session_state.years_of_service if st.session_state.years_of_service is not None else 0.0
+        # Ensure float type for years
+        years_value = float(st.session_state.years_of_service) if st.session_state.years_of_service is not None else 0.0
         new_years = st.number_input(
             "Years of service",
             min_value=0.0,
@@ -813,7 +827,7 @@ with st.expander("📊 View Full Calculator & Adjust Settings"):
             key="years_of_service_input"
         )
         if new_years != years_value:
-            st.session_state.years_of_service = new_years
+            st.session_state.years_of_service = float(new_years)
             st.rerun()
         
         retirement_value = int(st.session_state.retirement_age) if st.session_state.retirement_age is not None else 67
