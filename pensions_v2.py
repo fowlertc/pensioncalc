@@ -170,12 +170,12 @@ st.markdown(f"""
 def init_session_state():
     """Initialize all calculator values in session state."""
     defaults = {
-        "current_salary": 40000.0,
-        "years_of_service": 20.0,
-        "scheme": "2015 Scheme (career average)",
-        "current_age": 45,
-        "retirement_age": 67,
-        "normal_pension_age": 67,
+        "current_salary": None,  # Required - no default
+        "years_of_service": None,  # Required - no default
+        "scheme": None,  # Required - no default
+        "current_age": None,  # Required - no default
+        "retirement_age": None,  # Required - no default
+        "normal_pension_age": None,  # Set based on scheme
         "early_reduction_per_year": 4.0,
         "late_increase_per_year": 3.0,
         "commutation_proportion": 15,
@@ -206,6 +206,25 @@ init_session_state()
 apply_pending_updates()  # Apply any pending updates from AI before widgets render
 
 # ---------- Helper functions ----------
+
+def get_missing_required_fields() -> list:
+    """Check which required fields are still missing."""
+    required_fields = {
+        "current_salary": "current salary",
+        "current_age": "current age",
+        "years_of_service": "years of NHS service",
+        "scheme": "pension scheme",
+        "retirement_age": "planned retirement age"
+    }
+    missing = []
+    for field, label in required_fields.items():
+        if st.session_state.get(field) is None:
+            missing.append(label)
+    return missing
+
+def has_required_fields() -> bool:
+    """Check if all required fields are set."""
+    return len(get_missing_required_fields()) == 0
 
 def nhs_scheme_parameters(scheme: str):
     """
@@ -433,46 +452,82 @@ def process_calculator_update(function_args: dict) -> str:
 
 def get_system_prompt() -> str:
     """Build the system prompt with current calculator state."""
-    # Calculate current results
-    results = calculate_nhs_pension(
-        scheme=st.session_state.scheme,
-        current_salary=st.session_state.current_salary,
-        years_of_service=st.session_state.years_of_service,
-        retirement_age=st.session_state.retirement_age,
-        normal_pension_age=st.session_state.normal_pension_age,
-        early_reduction_per_year=st.session_state.early_reduction_per_year / 100,
-        late_increase_per_year=st.session_state.late_increase_per_year / 100,
-        commutation_proportion=st.session_state.commutation_proportion / 100,
-        commutation_factor=st.session_state.commutation_factor,
-        care_salary_pct=st.session_state.care_salary_pct,
-        current_age=st.session_state.current_age,
-        salary_growth_rate=st.session_state.salary_growth_rate / 100,
-        inflation_rate=st.session_state.inflation_rate / 100,
-    )
+    missing_fields = get_missing_required_fields()
+    
+    # Build state description
+    def format_value(value, prefix="", suffix=""):
+        if value is None:
+            return "NOT SET"
+        return f"{prefix}{value}{suffix}"
+    
+    def format_currency(value):
+        if value is None:
+            return "NOT SET"
+        return f"£{value:,.0f}"
+    
+    # Calculate results only if we have all required fields
+    if has_required_fields():
+        results = calculate_nhs_pension(
+            scheme=st.session_state.scheme,
+            current_salary=st.session_state.current_salary,
+            years_of_service=st.session_state.years_of_service,
+            retirement_age=st.session_state.retirement_age,
+            normal_pension_age=st.session_state.normal_pension_age or 67,
+            early_reduction_per_year=st.session_state.early_reduction_per_year / 100,
+            late_increase_per_year=st.session_state.late_increase_per_year / 100,
+            commutation_proportion=st.session_state.commutation_proportion / 100,
+            commutation_factor=st.session_state.commutation_factor,
+            care_salary_pct=st.session_state.care_salary_pct,
+            current_age=st.session_state.current_age,
+            salary_growth_rate=st.session_state.salary_growth_rate / 100,
+            inflation_rate=st.session_state.inflation_rate / 100,
+        )
+        results_section = f"""CURRENT CALCULATION RESULTS:
+- Annual pension (after commutation): £{results['annual_pension_after_commutation']:,.2f}
+- Total lump sum: £{results['total_lump_sum']:,.2f}
+- Real-terms annual pension: £{results['real_annual_pension']:,.2f}
+- Monthly pension: £{results['annual_pension_after_commutation']/12:,.2f}
+- Base annual pension: £{results['base_annual_pension']:,.2f}
+- Early/late adjustment factor: {results['early_late_adjustment_factor']:.4f}"""
+    else:
+        results_section = f"""CALCULATION NOT YET POSSIBLE
+Missing required information: {', '.join(missing_fields)}
+You MUST gather these before providing any pension estimate."""
+    
+    missing_info = ""
+    if missing_fields:
+        missing_info = f"""\n\n**IMPORTANT - MISSING REQUIRED INFORMATION:**
+The following required fields have NOT been provided yet: {', '.join(missing_fields)}
+
+You MUST ask the user for this information before you can calculate their pension.
+Do NOT make up or assume values. Ask for the missing information conversationally.
+"""
     
     return f"""You are a friendly NHS pension advisor assistant. Your role is to help users understand their NHS pension through natural conversation.
 
-CONVERSATION APPROACH:
-When a user starts a new conversation or hasn't provided their details yet, warmly gather the key information needed:
+CONVERSATION APPROACH:{missing_info}
+
+To calculate a pension estimate, you MUST have these 5 pieces of information:
 1. Current annual salary
-2. Current age
+2. Current age  
 3. Years of NHS service (or expected years at retirement)
 4. Which pension scheme they're in (1995, 2008, or 2015)
-5. When they plan to retire
+5. When they plan to retire (retirement age)
 
-Ask these naturally in conversation, not as a rigid form. For example:
+If ANY of these are missing, ask for them before calculating. Ask naturally, not as a rigid form. For example:
 - "Hi! I'd be happy to help you understand your NHS pension. To give you an estimate, could you tell me your current salary and age?"
 - "Great! And how long have you worked (or expect to work) in the NHS?"
+- "Which NHS pension scheme are you in? Most current staff are in the 2015 scheme."
 
-Once you have the basics, use the update_calculator function to set the values and provide an estimate.
+Once you have ALL the basics, use the update_calculator function to set the values and provide an estimate.
 
 CURRENT CALCULATOR STATE:
-- Current salary: £{st.session_state.current_salary:,.0f}
-- Years of service: {st.session_state.years_of_service}
-- Pension scheme: {st.session_state.scheme}
-- Current age: {st.session_state.current_age}
-- Retirement age: {st.session_state.retirement_age}
-- Normal pension age: {st.session_state.normal_pension_age}
+- Current salary: {format_currency(st.session_state.current_salary)}
+- Years of service: {format_value(st.session_state.years_of_service)}
+- Pension scheme: {format_value(st.session_state.scheme)}
+- Current age: {format_value(st.session_state.current_age)}
+- Retirement age: {format_value(st.session_state.retirement_age)}
+- Normal pension age: {format_value(st.session_state.normal_pension_age)}
 - Early reduction per year: {st.session_state.early_reduction_per_year}%
 - Late increase per year: {st.session_state.late_increase_per_year}%
 - Commutation proportion: {st.session_state.commutation_proportion}%
@@ -482,13 +537,7 @@ CURRENT CALCULATOR STATE:
 - Investment growth rate: {st.session_state.investment_growth_rate}%
 - Inflation rate: {st.session_state.inflation_rate}%
 
-CURRENT CALCULATION RESULTS:
-- Annual pension (after commutation): £{results['annual_pension_after_commutation']:,.2f}
-- Total lump sum: £{results['total_lump_sum']:,.2f}
-- Real-terms annual pension: £{results['real_annual_pension']:,.2f}
-- Monthly pension: £{results['annual_pension_after_commutation']/12:,.2f}
-- Base annual pension: £{results['base_annual_pension']:,.2f}
-- Early/late adjustment factor: {results['early_late_adjustment_factor']:.4f}
+{results_section}
 
 NHS PENSION SCHEME INFORMATION:
 - 1995 Section: Final salary scheme, 1/80th accrual rate, automatic 3x lump sum, Normal Pension Age 60
@@ -514,10 +563,14 @@ CRITICAL RULES FOR update_calculator:
 - If user says "I'm 45 and plan to retire at 60" - only set current_age and retirement_age
 - DO NOT include fields that weren't mentioned
 - When user provides multiple values at once, include all of them in ONE function call
+- When setting the scheme, also set the normal_pension_age (1995=60, 2008=65, 2015=67)
 
-After updating the calculator, always summarise the pension estimate clearly:
+IMPORTANT: If required fields are still missing after an update, ask for the remaining information.
+DO NOT provide a pension estimate until you have ALL 5 required fields (salary, age, years of service, scheme, retirement age).
+
+After updating the calculator with ALL required fields, summarise the pension estimate clearly:
 - Annual pension amount
-- Monthly amount
+- Monthly amount  
 - Lump sum if applicable
 - Offer to explore different scenarios
 
@@ -680,67 +733,94 @@ else:
 # ---------- COLLAPSIBLE: Calculator Details ----------
 st.markdown("---")
 
-# Calculate results for display
-results = calculate_nhs_pension(
-    scheme=st.session_state.scheme,
-    current_salary=st.session_state.current_salary,
-    years_of_service=st.session_state.years_of_service,
-    retirement_age=st.session_state.retirement_age,
-    normal_pension_age=st.session_state.normal_pension_age,
-    early_reduction_per_year=st.session_state.early_reduction_per_year / 100,
-    late_increase_per_year=st.session_state.late_increase_per_year / 100,
-    commutation_proportion=st.session_state.commutation_proportion / 100,
-    commutation_factor=st.session_state.commutation_factor,
-    care_salary_pct=st.session_state.care_salary_pct,
-    current_age=st.session_state.current_age,
-    salary_growth_rate=st.session_state.salary_growth_rate / 100,
-    inflation_rate=st.session_state.inflation_rate / 100,
-)
-
-# Quick summary always visible
-summary_col1, summary_col2, summary_col3 = st.columns(3)
-with summary_col1:
-    st.metric("💰 Annual Pension", f"£{results['annual_pension_after_commutation']:,.0f}")
-with summary_col2:
-    st.metric("📅 Monthly", f"£{results['annual_pension_after_commutation']/12:,.0f}")
-with summary_col3:
-    st.metric("🎁 Lump Sum", f"£{results['total_lump_sum']:,.0f}")
+# Calculate results for display only if we have all required fields
+if has_required_fields():
+    results = calculate_nhs_pension(
+        scheme=st.session_state.scheme,
+        current_salary=st.session_state.current_salary,
+        years_of_service=st.session_state.years_of_service,
+        retirement_age=st.session_state.retirement_age,
+        normal_pension_age=st.session_state.normal_pension_age or 67,
+        early_reduction_per_year=st.session_state.early_reduction_per_year / 100,
+        late_increase_per_year=st.session_state.late_increase_per_year / 100,
+        commutation_proportion=st.session_state.commutation_proportion / 100,
+        commutation_factor=st.session_state.commutation_factor,
+        care_salary_pct=st.session_state.care_salary_pct,
+        current_age=st.session_state.current_age,
+        salary_growth_rate=st.session_state.salary_growth_rate / 100,
+        inflation_rate=st.session_state.inflation_rate / 100,
+    )
+    
+    # Quick summary always visible
+    summary_col1, summary_col2, summary_col3 = st.columns(3)
+    with summary_col1:
+        st.metric("💰 Annual Pension", f"£{results['annual_pension_after_commutation']:,.0f}")
+    with summary_col2:
+        st.metric("📅 Monthly", f"£{results['annual_pension_after_commutation']/12:,.0f}")
+    with summary_col3:
+        st.metric("🎁 Lump Sum", f"£{results['total_lump_sum']:,.0f}")
+else:
+    results = None
+    missing = get_missing_required_fields()
+    st.info(f"💬 **Tell me about yourself to see your pension estimate.** I still need: {', '.join(missing)}")
 
 with st.expander("📊 View Full Calculator & Adjust Settings"):
     st.markdown("#### Your Details")
+    st.caption("💡 *Use the chat to update these values, or adjust them directly here.*")
     
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.number_input(
+        # Handle None values by showing placeholder
+        salary_value = st.session_state.current_salary if st.session_state.current_salary is not None else 0.0
+        new_salary = st.number_input(
             "Current annual salary (£)",
             min_value=0.0,
             step=1000.0,
-            key="current_salary"
+            value=salary_value,
+            key="current_salary_input"
         )
+        if new_salary != salary_value and new_salary > 0:
+            st.session_state.current_salary = new_salary
+            st.rerun()
         
-        st.number_input(
+        age_value = st.session_state.current_age if st.session_state.current_age is not None else 30
+        new_age = st.number_input(
             "Current age",
             min_value=18,
             max_value=75,
-            key="current_age"
+            value=age_value,
+            key="current_age_input"
         )
+        if new_age != age_value:
+            st.session_state.current_age = new_age
+            st.rerun()
     
     with col2:
-        st.number_input(
+        years_value = st.session_state.years_of_service if st.session_state.years_of_service is not None else 0.0
+        new_years = st.number_input(
             "Years of service",
             min_value=0.0,
             max_value=50.0,
             step=1.0,
-            key="years_of_service"
+            value=years_value,
+            key="years_of_service_input"
         )
+        if new_years != years_value:
+            st.session_state.years_of_service = new_years
+            st.rerun()
         
-        st.slider(
+        retirement_value = st.session_state.retirement_age if st.session_state.retirement_age is not None else 67
+        new_retirement = st.slider(
             "Retirement age",
             min_value=55,
             max_value=75,
-            key="retirement_age"
+            value=retirement_value,
+            key="retirement_age_input"
         )
+        if new_retirement != retirement_value:
+            st.session_state.retirement_age = new_retirement
+            st.rerun()
     
     with col3:
         scheme_options = [
@@ -748,19 +828,34 @@ with st.expander("📊 View Full Calculator & Adjust Settings"):
             "2008 Section (final salary)",
             "2015 Scheme (career average)",
         ]
-        st.radio(
+        current_scheme = st.session_state.scheme if st.session_state.scheme is not None else "2015 Scheme (career average)"
+        scheme_index = scheme_options.index(current_scheme) if current_scheme in scheme_options else 2
+        new_scheme = st.radio(
             "Pension scheme",
             scheme_options,
-            key="scheme"
+            index=scheme_index,
+            key="scheme_input"
         )
+        if new_scheme != st.session_state.scheme:
+            st.session_state.scheme = new_scheme
+            # Set default NPA based on scheme
+            _, _, suggested_npa, _ = nhs_scheme_parameters(new_scheme)
+            st.session_state.normal_pension_age = suggested_npa
+            st.rerun()
         
-        _, _, suggested_npa, scheme_desc = nhs_scheme_parameters(st.session_state.scheme)
-        st.number_input(
+        current_scheme_for_npa = st.session_state.scheme or "2015 Scheme (career average)"
+        _, _, suggested_npa, scheme_desc = nhs_scheme_parameters(current_scheme_for_npa)
+        npa_value = st.session_state.normal_pension_age if st.session_state.normal_pension_age is not None else suggested_npa
+        new_npa = st.number_input(
             "Normal pension age",
             min_value=55,
             max_value=75,
-            key="normal_pension_age"
+            value=npa_value,
+            key="normal_pension_age_input"
         )
+        if new_npa != st.session_state.normal_pension_age:
+            st.session_state.normal_pension_age = new_npa
+            st.rerun()
     
     st.caption(f"**Scheme info:** {scheme_desc}")
     
@@ -848,48 +943,52 @@ with st.expander("📊 View Full Calculator & Adjust Settings"):
     # Detailed Results
     st.markdown("#### Detailed Results")
     
-    kpi1, kpi2 = st.columns(2)
-    with kpi1:
-        st.metric(
-            "Annual Pension (at retirement)",
-            f"£{results['annual_pension_after_commutation']:,.0f}",
-        )
-    with kpi2:
-        st.metric(
-            "Lump Sum",
-            f"£{results['total_lump_sum']:,.0f}",
-        )
-    
-    monthly = results['annual_pension_after_commutation'] / 12
-    st.caption(f"That's approximately **£{monthly:,.0f} per month** before tax.")
-    
-    if results['years_to_retirement'] > 0:
-        st.markdown("##### 📊 In Today's Money")
-        real_col1, real_col2 = st.columns(2)
-        with real_col1:
-            real_monthly = results['real_annual_pension'] / 12
+    if results:
+        kpi1, kpi2 = st.columns(2)
+        with kpi1:
             st.metric(
-                f"Real-Terms Annual Pension",
-                f"£{results['real_annual_pension']:,.0f}",
-                delta=f"£{real_monthly:,.0f}/month",
-                delta_color="off"
+                "Annual Pension (at retirement)",
+                f"£{results['annual_pension_after_commutation']:,.0f}",
             )
-        with real_col2:
+        with kpi2:
             st.metric(
-                "Real-Terms Lump Sum",
-                f"£{results['real_lump_sum']:,.0f}"
+                "Lump Sum",
+                f"£{results['total_lump_sum']:,.0f}",
             )
-        st.caption(f"Adjusted for {st.session_state.inflation_rate}% inflation over {results['years_to_retirement']} years to retirement.")
         
-        if st.session_state.scheme in ["1995 Section (final salary)", "2008 Section (final salary)"]:
-            st.info(f"📈 With {st.session_state.salary_growth_rate}% salary growth, your projected final salary: **£{results['projected_salary']:,.0f}**")
-    
-    # Chart
-    chart_data = pd.DataFrame({
-        "Type": ["Annual Pension", "Lump Sum"],
-        "Amount": [results['annual_pension_after_commutation'], results['total_lump_sum']]
-    }).set_index("Type")
-    st.bar_chart(chart_data)
+        monthly = results['annual_pension_after_commutation'] / 12
+        st.caption(f"That's approximately **£{monthly:,.0f} per month** before tax.")
+        
+        if results['years_to_retirement'] > 0:
+            st.markdown("##### 📊 In Today's Money")
+            real_col1, real_col2 = st.columns(2)
+            with real_col1:
+                real_monthly = results['real_annual_pension'] / 12
+                st.metric(
+                    f"Real-Terms Annual Pension",
+                    f"£{results['real_annual_pension']:,.0f}",
+                    delta=f"£{real_monthly:,.0f}/month",
+                    delta_color="off"
+                )
+            with real_col2:
+                st.metric(
+                    "Real-Terms Lump Sum",
+                    f"£{results['real_lump_sum']:,.0f}"
+                )
+            st.caption(f"Adjusted for {st.session_state.inflation_rate}% inflation over {results['years_to_retirement']} years to retirement.")
+            
+            if st.session_state.scheme in ["1995 Section (final salary)", "2008 Section (final salary)"]:
+                st.info(f"📈 With {st.session_state.salary_growth_rate}% salary growth, your projected final salary: **£{results['projected_salary']:,.0f}**")
+        
+        # Chart
+        chart_data = pd.DataFrame({
+            "Type": ["Annual Pension", "Lump Sum"],
+            "Amount": [results['annual_pension_after_commutation'], results['total_lump_sum']]
+        }).set_index("Type")
+        st.bar_chart(chart_data)
+    else:
+        missing = get_missing_required_fields()
+        st.info(f"💬 Complete your details above or chat with me to see your pension estimate. Still needed: {', '.join(missing)}")
 
 
 # Footer
