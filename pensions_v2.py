@@ -433,15 +433,20 @@ def process_calculator_update(function_args: dict) -> str:
                 # Store update to be applied on next rerun (before widgets render)
                 st.session_state.pending_updates[key] = value
                 
-                # Format the update message
+                # Format the update message - handle None old_value
+                old_display = "not set" if old_value is None else None
                 if key == "current_salary":
-                    updates.append(f"• {field_labels[key]}: £{old_value:,.0f} → £{value:,.0f}")
+                    old_str = old_display or f"£{old_value:,.0f}"
+                    updates.append(f"• {field_labels[key]}: {old_str} → £{value:,.0f}")
                 elif key in ["early_reduction_per_year", "late_increase_per_year", "salary_growth_rate", "investment_growth_rate", "inflation_rate"]:
-                    updates.append(f"• {field_labels[key]}: {old_value}% → {value}%")
+                    old_str = old_display or f"{old_value}%"
+                    updates.append(f"• {field_labels[key]}: {old_str} → {value}%")
                 elif key in ["commutation_proportion", "care_salary_pct"]:
-                    updates.append(f"• {field_labels[key]}: {old_value}% → {value}%")
+                    old_str = old_display or f"{old_value}%"
+                    updates.append(f"• {field_labels[key]}: {old_str} → {value}%")
                 else:
-                    updates.append(f"• {field_labels[key]}: {old_value} → {value}")
+                    old_str = old_display or str(old_value)
+                    updates.append(f"• {field_labels[key]}: {old_str} → {value}")
     
     if updates:
         st.session_state.calculator_updated = True
@@ -784,16 +789,17 @@ with st.expander("📊 View Full Calculator & Adjust Settings"):
             st.session_state.current_salary = new_salary
             st.rerun()
         
-        age_value = st.session_state.current_age if st.session_state.current_age is not None else 30
+        age_value = int(st.session_state.current_age) if st.session_state.current_age is not None else 30
         new_age = st.number_input(
             "Current age",
             min_value=18,
             max_value=75,
             value=age_value,
+            step=1,
             key="current_age_input"
         )
         if new_age != age_value:
-            st.session_state.current_age = new_age
+            st.session_state.current_age = int(new_age)
             st.rerun()
     
     with col2:
@@ -810,16 +816,17 @@ with st.expander("📊 View Full Calculator & Adjust Settings"):
             st.session_state.years_of_service = new_years
             st.rerun()
         
-        retirement_value = st.session_state.retirement_age if st.session_state.retirement_age is not None else 67
+        retirement_value = int(st.session_state.retirement_age) if st.session_state.retirement_age is not None else 67
         new_retirement = st.slider(
             "Retirement age",
             min_value=55,
             max_value=75,
             value=retirement_value,
+            step=1,
             key="retirement_age_input"
         )
         if new_retirement != retirement_value:
-            st.session_state.retirement_age = new_retirement
+            st.session_state.retirement_age = int(new_retirement)
             st.rerun()
     
     with col3:
@@ -845,16 +852,17 @@ with st.expander("📊 View Full Calculator & Adjust Settings"):
         
         current_scheme_for_npa = st.session_state.scheme or "2015 Scheme (career average)"
         _, _, suggested_npa, scheme_desc = nhs_scheme_parameters(current_scheme_for_npa)
-        npa_value = st.session_state.normal_pension_age if st.session_state.normal_pension_age is not None else suggested_npa
+        npa_value = int(st.session_state.normal_pension_age) if st.session_state.normal_pension_age is not None else suggested_npa
         new_npa = st.number_input(
             "Normal pension age",
             min_value=55,
             max_value=75,
             value=npa_value,
+            step=1,
             key="normal_pension_age_input"
         )
         if new_npa != st.session_state.normal_pension_age:
-            st.session_state.normal_pension_age = new_npa
+            st.session_state.normal_pension_age = int(new_npa)
             st.rerun()
     
     st.caption(f"**Scheme info:** {scheme_desc}")
